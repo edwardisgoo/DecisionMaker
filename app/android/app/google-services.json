@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1002739295443",
+    "project_id": "decisionmaker-fe29b",
+    "storage_bucket": "decisionmaker-fe29b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1002739295443:android:c7af4a59c67f36e790a026",
+        "android_client_info": {
+          "package_name": "com.example.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlLFEf9UieEkneWCMjGv8bOgEedwXKA0E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

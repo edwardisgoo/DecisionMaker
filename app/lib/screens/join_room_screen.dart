@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/room_scope.dart';
 import '../services/room_store.dart';
 import 'room_lobby_screen.dart';
+import '../services/firebase_room_service.dart';
+import 'room_lobby_screen.dart';
 
 class JoinRoomScreen extends StatefulWidget {
   const JoinRoomScreen({super.key});
@@ -12,6 +14,8 @@ class JoinRoomScreen extends StatefulWidget {
 
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
   final TextEditingController _codeController = TextEditingController();
+  final _svc = FirebaseRoomService();
+  bool _loading = false;
 
   String _normalize(String input) =>
       input.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
@@ -19,31 +23,30 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   bool _isValidCode(String code) =>
       RegExp(r'^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$').hasMatch(code);
 
-  void _join() {
+  Future<void> _join() async {
     final code = _normalize(_codeController.text);
 
     if (!_isValidCode(code)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('That room code is invalid. Try again.')),
+        const SnackBar(content: Text('That room code is invalid.')),
       );
       return;
     }
 
-    final store = RoomScope.of(context);
-    final room = store.getByCode(code);
-
-    if (room == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No room found for that code (on this device).'),
-        ),
+    setState(() => _loading = true);
+    try {
+      await _svc.joinRoom(code: code, name: 'Member');
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => RoomLobbyScreen(roomCode: code)),
       );
-      return;
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Join failed: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => RoomLobbyScreen(roomCode: room.code)),
-    );
   }
 
   @override
@@ -70,7 +73,10 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            FilledButton(onPressed: _join, child: const Text('Join')),
+            FilledButton(
+              onPressed: _loading ? null : _join,
+              child: Text(_loading ? 'Joining…' : 'Join'),
+            ),
             const SizedBox(height: 12),
             const Text(
               'Tip: codes don’t use 0/O/I/1 to avoid human suffering.',

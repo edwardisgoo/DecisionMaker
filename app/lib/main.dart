@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'app.dart';
-import 'services/room_scope.dart';
-import 'services/room_store.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-void main() {
+import 'app.dart';
+import 'firebase_options.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(RoomScope(store: RoomStore(), child: const DecisionMakerApp()));
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  await FirebaseAuth.instance.signInAnonymously();
+
+  runApp(const DecisionMakerApp());
 }

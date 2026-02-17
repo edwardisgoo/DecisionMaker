@@ -4,6 +4,8 @@ import '../services/room_scope.dart';
 import '../services/room_store.dart';
 import '../models/participant.dart';
 import 'room_lobby_screen.dart';
+import '../services/firebase_room_service.dart';
+import 'room_lobby_screen.dart';
 
 class CreateRoomScreen extends StatefulWidget {
   const CreateRoomScreen({super.key});
@@ -15,6 +17,8 @@ class CreateRoomScreen extends StatefulWidget {
 class _CreateRoomScreenState extends State<CreateRoomScreen> {
   final TextEditingController _titleController = TextEditingController();
   String? _roomCode;
+  final _svc = FirebaseRoomService();
+  bool _loading = false;
 
   String _generateRoomCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/I/1 nonsense
@@ -22,39 +26,29 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
   }
 
-  void _createRoom() {
+  Future<void> _createRoom() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Give your room a title, genius.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Give your room a title.')));
       return;
     }
 
-    final store = RoomScope.of(context);
-    final code = _generateRoomCode();
-
-    store.add(
-      Room(
-        code: code,
-        title: title,
-        participants: [
-          Participant(
-            id: 'host-${DateTime.now().millisecondsSinceEpoch}',
-            name: 'Host',
-            isHost: true,
-          ),
-        ],
-      ),
-    );
-
-    setState(() {
-      _roomCode = code;
-    });
-
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => RoomLobbyScreen(roomCode: code)));
+    setState(() => _loading = true);
+    try {
+      final code = await _svc.createRoom(title: title, hostName: 'Host');
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => RoomLobbyScreen(roomCode: code)),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -86,9 +80,10 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: _createRoom,
-              child: const Text('Create Room'),
+              onPressed: _loading ? null : _createRoom,
+              child: Text(_loading ? 'Creating…' : 'Create Room'),
             ),
+
             const SizedBox(height: 24),
             if (_roomCode != null) ...[
               const Divider(),
