@@ -2,44 +2,21 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Room documents
     match /rooms/{roomCode} {
-      // Any authenticated user can read a room (needed to join)
-      allow read: if request.auth != null;
-
-      // Only authenticated users can create rooms; they must set themselves as host
+      allow read: if true;
       allow create: if request.auth != null
                     && request.resource.data.hostUid == request.auth.uid;
-
-      // The host can update any room field; participants can only touch lastActiveAt
+      // Host can update/delete anything; any authed user can update lastActiveAt only
       allow update: if request.auth != null
                     && (resource.data.hostUid == request.auth.uid
-                        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActiveAt'])));
-
-      // Only the host can delete the room
+                        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActiveAt']));
       allow delete: if request.auth != null
                     && resource.data.hostUid == request.auth.uid;
 
-      // Participant sub-documents
-      match /participants/{participantUid} {
-        // Any authenticated user can read participants (lobby list)
-        allow read: if request.auth != null;
-
-        // A user can only create/update their own participant doc
-        allow create, update: if request.auth != null
-                              && request.auth.uid == participantUid;
-
-        // Only the host or the participant themselves can remove a participant
-        allow delete: if request.auth != null
-                      && (request.auth.uid == participantUid
-                          || request.auth.uid == get(/databases/$(database)/documents/rooms/$(roomCode)).data.hostUid);
+      match /participants/{uid} {
+        allow read: if true;
+        allow create, update: if request.auth != null && request.auth.uid == uid;
       }
-    }
-
-    // Deny everything else by default
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }
