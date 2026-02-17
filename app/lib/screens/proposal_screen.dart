@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_room_service.dart';
+import 'voting_screen.dart';
 
 class ProposalScreen extends StatefulWidget {
   final String roomCode;
@@ -78,7 +79,21 @@ class _ProposalScreenState extends State<ProposalScreen> {
           final roomData = roomSnap.data!.data()!;
           final title = (roomData['title'] ?? '') as String;
           final hostUid = (roomData['hostUid'] ?? '') as String;
+          final phase = (roomData['phase'] ?? 'proposal') as String;
           final isMeHost = myUid == hostUid;
+
+          // Navigate to voting phase when host advances
+          if (phase == 'voting') {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => VotingScreen(roomCode: widget.roomCode),
+                  ),
+                );
+              }
+            });
+          }
 
           return StreamBuilder(
             stream: _svc.participantsStream(widget.roomCode),
@@ -256,15 +271,21 @@ class _ProposalScreenState extends State<ProposalScreen> {
                         if (isMeHost)
                           FilledButton(
                             onPressed: allSubmitted
-                                ? () {
-                                    // TODO: Navigate to Phase 2 (Voting)
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Phase 2 not yet implemented',
-                                        ),
-                                      ),
-                                    );
+                                ? () async {
+                                    try {
+                                      await _svc.updateRoomPhase(
+                                        widget.roomCode,
+                                        'voting',
+                                      );
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Failed to start voting: $e'),
+                                          ),
+                                        );
+                                      }
+                                    }
                                   }
                                 : null,
                             child: Text(

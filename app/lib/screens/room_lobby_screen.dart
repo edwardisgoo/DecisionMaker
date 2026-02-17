@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_room_service.dart';
 import 'proposal_screen.dart';
+import 'voting_screen.dart';
 
 class RoomLobbyScreen extends StatefulWidget {
   final String roomCode;
@@ -41,12 +42,20 @@ class _RoomLobbyScreenState extends State<RoomLobbyScreen> {
           // Handle phase transitions
           if (phase != 'lobby' && phase != _lastPhase) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && phase == 'proposal') {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (_) => ProposalScreen(roomCode: widget.roomCode),
-                  ),
-                );
+              if (mounted) {
+                if (phase == 'proposal') {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => ProposalScreen(roomCode: widget.roomCode),
+                    ),
+                  );
+                } else if (phase == 'voting') {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => VotingScreen(roomCode: widget.roomCode),
+                    ),
+                  );
+                }
               }
             });
             _lastPhase = phase;

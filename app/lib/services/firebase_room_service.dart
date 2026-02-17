@@ -133,4 +133,38 @@ class FirebaseRoomService {
         .collection('proposals')
         .snapshots();
   }
+
+  int calculateVoteQuota(int participantCount) {
+    if (participantCount <= 4) return 1;
+    if (participantCount <= 10) return 2;
+    if (participantCount <= 16) return 3;
+    return 4;
+  }
+
+  Future<void> submitVotes({
+    required String code,
+    required List<String> votedProposalIds,
+  }) async {
+    final normalized = code.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    final voteRef = _db
+        .collection('rooms')
+        .doc(normalized)
+        .collection('votes')
+        .doc(uid);
+
+    await voteRef.set({
+      'votedProposalIds': votedProposalIds,
+      'hasConfirmed': true,
+      'submittedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> votesStream(String code) {
+    final normalized = code.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    return _db
+        .collection('rooms')
+        .doc(normalized)
+        .collection('votes')
+        .snapshots();
+  }
 }
