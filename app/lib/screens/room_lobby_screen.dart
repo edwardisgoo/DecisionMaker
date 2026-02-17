@@ -1,21 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_room_service.dart';
+import 'proposal_screen.dart';
 
-class RoomLobbyScreen extends StatelessWidget {
+class RoomLobbyScreen extends StatefulWidget {
   final String roomCode;
 
   const RoomLobbyScreen({super.key, required this.roomCode});
 
   @override
+  State<RoomLobbyScreen> createState() => _RoomLobbyScreenState();
+}
+
+class _RoomLobbyScreenState extends State<RoomLobbyScreen> {
+  final _svc = FirebaseRoomService.instance;
+  String? _lastPhase;
+
+  @override
   Widget build(BuildContext context) {
-    final svc = FirebaseRoomService.instance;
     final myUid = FirebaseAuth.instance.currentUser!.uid;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Room Lobby')),
       body: StreamBuilder(
-        stream: svc.roomStream(roomCode),
+        stream: _svc.roomStream(widget.roomCode),
         builder: (context, roomSnap) {
           if (roomSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -27,7 +35,22 @@ class RoomLobbyScreen extends StatelessWidget {
           final data = roomSnap.data!.data()!;
           final title = (data['title'] ?? '') as String;
           final hostUid = (data['hostUid'] ?? '') as String;
+          final phase = (data['phase'] ?? 'lobby') as String;
           final isMeHost = myUid == hostUid;
+
+          // Handle phase transitions
+          if (phase != 'lobby' && phase != _lastPhase) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && phase == 'proposal') {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => ProposalScreen(roomCode: widget.roomCode),
+                  ),
+                );
+              }
+            });
+            _lastPhase = phase;
+          }
 
           return Padding(
             padding: const EdgeInsets.all(16),
@@ -43,7 +66,7 @@ class RoomLobbyScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Room Code: $roomCode',
+                  'Room Code: ${widget.roomCode}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.5,
@@ -57,7 +80,7 @@ class RoomLobbyScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 Expanded(
                   child: StreamBuilder(
-                    stream: svc.participantsStream(roomCode),
+                    stream: _svc.participantsStream(widget.roomCode),
                     builder: (context, partSnap) {
                       if (partSnap.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
@@ -92,7 +115,22 @@ class RoomLobbyScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 FilledButton(
-                  onPressed: isMeHost ? () {} : null,
+                  onPressed: isMeHost
+                      ? () async {
+                          try {
+                            await _svc.updateRoomPhase(
+                              widget.roomCode,
+                              'proposal',
+                            );
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to start: $e')),
+                              );
+                            }
+                          }
+                        }
+                      : null,
                   child: Text(
                     isMeHost ? 'Host: Start (next)' : 'Waiting for host…',
                   ),

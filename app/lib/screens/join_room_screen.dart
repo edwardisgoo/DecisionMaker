@@ -10,6 +10,7 @@ class JoinRoomScreen extends StatefulWidget {
 }
 
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
   final _svc = FirebaseRoomService.instance;
   bool _loading = false;
@@ -21,7 +22,15 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       RegExp(r'^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$').hasMatch(code);
 
   Future<void> _join() async {
+    final name = _nameController.text.trim();
     final code = _normalize(_codeController.text);
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your name.')),
+      );
+      return;
+    }
 
     if (!_isValidCode(code)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -32,7 +41,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
 
     setState(() => _loading = true);
     try {
-      await _svc.joinRoom(code: code, name: 'Member');
+      await _svc.joinRoom(code: code, name: name);
       if (!mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => RoomLobbyScreen(roomCode: code)),
@@ -47,6 +56,13 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Join Room')),
@@ -55,6 +71,19 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const Text(
+              'Your name',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Enter your name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 24),
             const Text(
               'Enter room code',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),

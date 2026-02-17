@@ -17,6 +17,11 @@ service cloud.firestore {
         allow read: if true;
         allow create, update: if request.auth != null && request.auth.uid == uid;
       }
+
+      match /proposals/{uid} {
+        allow read: if true;
+        allow create, update: if request.auth != null && request.auth.uid == uid;
+      }
     }
   }
 }

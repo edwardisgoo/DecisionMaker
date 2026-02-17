@@ -39,6 +39,7 @@ class FirebaseRoomService {
           tx.set(roomRef, {
             'title': cleanTitle,
             'hostUid': uid,
+            'phase': 'lobby',
             'createdAt': FieldValue.serverTimestamp(),
             'lastActiveAt': FieldValue.serverTimestamp(),
           });
@@ -89,6 +90,47 @@ class FirebaseRoomService {
         .doc(normalized)
         .collection('participants')
         .orderBy('joinedAt')
+        .snapshots();
+  }
+
+  Future<void> updateRoomPhase(String code, String phase) async {
+    final normalized = code.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    final roomRef = _db.collection('rooms').doc(normalized);
+    await roomRef.update({
+      'phase': phase,
+      'lastActiveAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> submitProposal({
+    required String code,
+    required String proposalText,
+    required String authorName,
+  }) async {
+    final cleanText = proposalText.trim();
+    if (cleanText.isEmpty) throw ArgumentError('Proposal text is empty');
+
+    final normalized = code.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    final proposalRef = _db
+        .collection('rooms')
+        .doc(normalized)
+        .collection('proposals')
+        .doc(uid);
+
+    await proposalRef.set({
+      'text': cleanText,
+      'authorUid': uid,
+      'authorName': authorName,
+      'submittedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> proposalsStream(String code) {
+    final normalized = code.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    return _db
+        .collection('rooms')
+        .doc(normalized)
+        .collection('proposals')
         .snapshots();
   }
 }
