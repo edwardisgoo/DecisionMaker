@@ -7,8 +7,6 @@ class FirebaseRoomService {
     : _auth = auth ?? FirebaseAuth.instance,
       _db = firestore ?? FirebaseFirestore.instance;
 
-  static final instance = FirebaseRoomService();
-
   final FirebaseAuth _auth;
   final FirebaseFirestore _db;
 
@@ -40,7 +38,6 @@ class FirebaseRoomService {
             'title': cleanTitle,
             'hostUid': uid,
             'createdAt': FieldValue.serverTimestamp(),
-            'lastActiveAt': FieldValue.serverTimestamp(),
           });
 
           tx.set(roomRef.collection('participants').doc(uid), {
@@ -65,10 +62,6 @@ class FirebaseRoomService {
 
     final snap = await roomRef.get();
     if (!snap.exists) throw StateError('Room not found');
-
-    await roomRef.update({
-      'lastActiveAt': FieldValue.serverTimestamp(),
-    });
 
     await roomRef.collection('participants').doc(uid).set({
       'name': name,

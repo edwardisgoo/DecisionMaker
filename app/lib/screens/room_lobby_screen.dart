@@ -9,7 +9,7 @@ class RoomLobbyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final svc = FirebaseRoomService.instance;
+    final svc = FirebaseRoomService();
     final myUid = FirebaseAuth.instance.currentUser!.uid;
 
     return Scaffold(
