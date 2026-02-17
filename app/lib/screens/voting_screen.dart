@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:rxdart/rxdart.dart'; // IMPORT THIS
 import '../services/firebase_room_service.dart';
 
 class VotingScreen extends StatefulWidget {
@@ -15,9 +17,48 @@ class _VotingScreenState extends State<VotingScreen> {
   final _svc = FirebaseRoomService.instance;
   final PageController _pageController = PageController();
   final Set<String> _selectedProposalIds = {};
+
+  // We use a combined stream to avoid the "Pyramid of Doom"
+  late Stream<
+    ({
+      DocumentSnapshot<Map<String, dynamic>> room,
+      QuerySnapshot<Map<String, dynamic>> participants,
+      QuerySnapshot<Map<String, dynamic>> proposals,
+      QuerySnapshot<Map<String, dynamic>> votes,
+    })
+  >
+  _combinedStream;
+
   bool _hasConfirmed = false;
   bool _loading = false;
   int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 1. CREATE STREAMS ONCE HERE
+    // This fixes the bug where swiping (setState) recreated streams and reset the UI.
+    final roomStream = _svc.roomStream(widget.roomCode);
+    final participantsStream = _svc.participantsStream(widget.roomCode);
+    final proposalsStream = _svc.proposalsStream(widget.roomCode);
+    final votesStream = _svc.votesStream(widget.roomCode);
+
+    // 2. COMBINE THEM
+    // We wait for all 4 to have data, then emit them together as a Record.
+    _combinedStream = Rx.combineLatest4(
+      roomStream,
+      participantsStream,
+      proposalsStream,
+      votesStream,
+      (room, participants, proposals, votes) => (
+        room: room,
+        participants: participants,
+        proposals: proposals,
+        votes: votes,
+      ),
+    );
+  }
 
   Future<void> _submitVotes() async {
     setState(() => _loading = true);
@@ -38,9 +79,9 @@ class _VotingScreenState extends State<VotingScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to submit votes: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to submit votes: $e')));
       }
     }
   }
@@ -57,342 +98,321 @@ class _VotingScreenState extends State<VotingScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Phase 2: Voting')),
+      // 3. SINGLE STREAM BUILDER
       body: StreamBuilder(
-        stream: _svc.roomStream(widget.roomCode),
-        builder: (context, roomSnap) {
-          if (roomSnap.connectionState == ConnectionState.waiting) {
+        stream: _combinedStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!roomSnap.hasData || !(roomSnap.data?.exists ?? false)) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: Text('Loading room data...'));
+          }
+
+          // 4. UNPACK DATA SAFELY
+          final data = snapshot.data!;
+          final roomSnap = data.room;
+          final partSnap = data.participants;
+          final proposalSnap = data.proposals;
+          final voteSnap = data.votes;
+
+          if (!roomSnap.exists) {
             return const Center(child: Text('Room not found.'));
           }
 
-          final roomData = roomSnap.data!.data()!;
+          final roomData = roomSnap.data() as Map<String, dynamic>;
           final title = (roomData['title'] ?? '') as String;
           final hostUid = (roomData['hostUid'] ?? '') as String;
           final isMeHost = myUid == hostUid;
 
-          return StreamBuilder(
-            stream: _svc.participantsStream(widget.roomCode),
-            builder: (context, partSnap) {
-              if (partSnap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          final participants = partSnap.docs;
+          final voteQuota = _svc.calculateVoteQuota(participants.length);
+          final remainingVotes = voteQuota - _selectedProposalIds.length;
 
-              final participants = partSnap.data?.docs ?? [];
-              final voteQuota = _svc.calculateVoteQuota(participants.length);
-              final remainingVotes = voteQuota - _selectedProposalIds.length;
+          final proposals = proposalSnap.docs;
 
-              return StreamBuilder(
-                stream: _svc.proposalsStream(widget.roomCode),
-                builder: (context, proposalSnap) {
-                  if (proposalSnap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+          if (proposals.isEmpty) {
+            return const Center(child: Text('No proposals to vote on.'));
+          }
 
-                  final proposals = proposalSnap.data?.docs ?? [];
+          final votes = voteSnap.docs;
+          final confirmedUids =
+              votes
+                  .where((v) => (v.data()['hasConfirmed'] ?? false) as bool)
+                  .map((v) => v.id)
+                  .toSet();
 
-                  if (proposals.isEmpty) {
-                    return const Center(
-                      child: Text('No proposals to vote on.'),
-                    );
-                  }
+          // Check if current user has confirmed from Firestore
+          if (confirmedUids.contains(myUid) && !_hasConfirmed) {
+            // Defer set state to avoid build collisions
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _hasConfirmed = true);
+            });
+          }
 
-                  return StreamBuilder(
-                    stream: _svc.votesStream(widget.roomCode),
-                    builder: (context, voteSnap) {
-                      if (voteSnap.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(),
-                        );
-                      }
+          final allConfirmed =
+              confirmedUids.length == participants.length &&
+                  participants.isNotEmpty;
 
-                      final votes = voteSnap.data?.docs ?? [];
-                      final confirmedUids = votes
-                          .where((v) =>
-                              (v.data()['hasConfirmed'] ?? false) as bool)
-                          .map((v) => v.id)
-                          .toSet();
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Room Code: ${widget.roomCode}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
 
-                      // Check if current user has confirmed from Firestore
-                      if (confirmedUids.contains(myUid) && !_hasConfirmed) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            setState(() => _hasConfirmed = true);
-                          }
-                        });
-                      }
+                // Vote counter chip
+                Chip(
+                  avatar: Icon(
+                    Icons.how_to_vote,
+                    color:
+                        remainingVotes > 0
+                            ? Colors.green.shade700
+                            : Colors.grey.shade600,
+                  ),
+                  label: Text(
+                    '$remainingVotes of $voteQuota votes remaining',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  backgroundColor:
+                      remainingVotes > 0
+                          ? Colors.green.shade50
+                          : Colors.grey.shade200,
+                ),
+                const SizedBox(height: 16),
 
-                      final allConfirmed = participants.length == votes.length &&
-                          participants.isNotEmpty;
+                // Page indicator
+                Text(
+                  'Proposal ${_currentPage + 1} of ${proposals.length}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Swipeable cards
+                Expanded(
+                  child: PageView.builder(
+                    key: const PageStorageKey('voting_page_view'),
+                    controller: _pageController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    onPageChanged: (index) {
+                      // This setState no longer triggers a stream reset!
+                      setState(() => _currentPage = index);
+                    },
+                    itemCount: proposals.length,
+                    itemBuilder: (context, index) {
+                      final proposal = proposals[index];
+                      final proposalData = proposal.data();
+                      final proposalId = proposal.id;
+                      final authorName =
+                          (proposalData['authorName'] ?? 'Someone') as String;
+                      final proposalText =
+                          (proposalData['text'] ?? '') as String;
+                      final isSelected = _selectedProposalIds.contains(
+                        proposalId,
+                      );
+                      final canVote = remainingVotes > 0 || isSelected;
 
                       return Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Room Code: ${widget.roomCode}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            // Vote counter chip
-                            Chip(
-                              avatar: Icon(
-                                Icons.how_to_vote,
-                                color: remainingVotes > 0
-                                    ? Colors.green.shade700
-                                    : Colors.grey.shade600,
-                              ),
-                              label: Text(
-                                '$remainingVotes of $voteQuota votes remaining',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              backgroundColor: remainingVotes > 0
-                                  ? Colors.green.shade50
-                                  : Colors.grey.shade200,
-                            ),
-                            const SizedBox(height: 16),
-                            // Page indicator
-                            Text(
-                              'Proposal ${_currentPage + 1} of ${proposals.length}',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            // Swipeable cards
-                            Expanded(
-                              child: PageView.builder(
-                                key: const PageStorageKey('voting_page_view'),
-                                controller: _pageController,
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                onPageChanged: (index) {
-                                  setState(() => _currentPage = index);
-                                },
-                                itemCount: proposals.length,
-                                itemBuilder: (context, index) {
-                                  final proposal = proposals[index];
-                                  final proposalData = proposal.data();
-                                  final proposalId = proposal.id;
-                                  final authorName =
-                                      (proposalData['authorName'] ?? 'Someone')
-                                          as String;
-                                  final proposalText =
-                                      (proposalData['text'] ?? '') as String;
-                                  final isSelected =
-                                      _selectedProposalIds.contains(proposalId);
-                                  final canVote =
-                                      remainingVotes > 0 || isSelected;
-
-                                  return Padding(
-                                    key: ValueKey(proposalId),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                    child: Card(
-                                    elevation: 4,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(20),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(
-                                                Icons.person,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .primary,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  authorName,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleLarge
-                                                      ?.copyWith(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 16),
-                                          const Divider(),
-                                          const SizedBox(height: 16),
-                                          Expanded(
-                                            child: SingleChildScrollView(
-                                              physics: const ClampingScrollPhysics(),
-                                              child: Text(
-                                                proposalText,
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodyLarge,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          CheckboxListTile(
-                                            title: Text(
-                                              isSelected
-                                                  ? 'Voted for this proposal'
-                                                  : 'Vote for this proposal',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                color: isSelected
-                                                    ? Colors.green.shade700
-                                                    : null,
-                                              ),
-                                            ),
-                                            value: isSelected,
-                                            enabled: !_hasConfirmed && canVote,
-                                            onChanged: _hasConfirmed
-                                                ? null
-                                                : (bool? value) {
-                                                    if (value == true) {
-                                                      if (remainingVotes > 0) {
-                                                        setState(() {
-                                                          _selectedProposalIds
-                                                              .add(proposalId);
-                                                        });
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          const SnackBar(
-                                                            content: Text(
-                                                              'No votes remaining!',
-                                                            ),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      setState(() {
-                                                        _selectedProposalIds
-                                                            .remove(proposalId);
-                                                      });
-                                                    }
-                                                  },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            // Confirmation status
-                            if (_hasConfirmed)
-                              Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.shade50,
-                                  border: Border.all(color: Colors.green),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
+                        key: ValueKey(proposalId),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Card(
+                          elevation: 4,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
                                   children: [
                                     Icon(
-                                      Icons.check_circle,
-                                      color: Colors.green.shade700,
+                                      Icons.person,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
                                     ),
-                                    const SizedBox(width: 12),
-                                    const Expanded(
+                                    const SizedBox(width: 8),
+                                    Expanded(
                                       child: Text(
-                                        'Your votes have been confirmed!',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
+                                        authorName,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                     ),
                                   ],
                                 ),
-                              )
-                            else
-                              FilledButton(
-                                onPressed:
-                                    _loading || _hasConfirmed ? null : _submitVotes,
-                                child: Text(
-                                  _loading
-                                      ? 'Submitting...'
-                                      : 'Confirm Votes (${_selectedProposalIds.length} selected)',
-                                ),
-                              ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '${confirmedUids.length}/${participants.length} confirmed their votes',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: allConfirmed
-                                    ? Colors.green.shade700
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            // Host controls
-                            if (isMeHost && allConfirmed)
-                              FilledButton(
-                                onPressed: () {
-                                  // TODO: Navigate to results screen
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Results screen not yet implemented',
-                                      ),
+                                const SizedBox(height: 16),
+                                const Divider(),
+                                const SizedBox(height: 16),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    physics: const ClampingScrollPhysics(),
+                                    child: Text(
+                                      proposalText,
+                                      style:
+                                          Theme.of(context).textTheme.bodyLarge,
                                     ),
-                                  );
-                                },
-                                child: const Text('Host: Show Voting Results'),
-                              )
-                            else if (isMeHost)
-                              FilledButton(
-                                onPressed: null,
-                                child: Text(
-                                  'Host: Waiting for all votes... (${confirmedUids.length}/${participants.length})',
+                                  ),
                                 ),
-                              )
-                            else
-                              FilledButton(
-                                onPressed: null,
-                                child: Text(
-                                  allConfirmed
-                                      ? 'Waiting for host to show results...'
-                                      : 'Waiting for all votes... (${confirmedUids.length}/${participants.length})',
+                                const SizedBox(height: 16),
+                                CheckboxListTile(
+                                  title: Text(
+                                    isSelected
+                                        ? 'Voted for this proposal'
+                                        : 'Vote for this proposal',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          isSelected
+                                              ? Colors.green.shade700
+                                              : null,
+                                    ),
+                                  ),
+                                  value: isSelected,
+                                  enabled: !_hasConfirmed && canVote,
+                                  onChanged:
+                                      _hasConfirmed
+                                          ? null
+                                          : (bool? value) {
+                                            if (value == true) {
+                                              if (remainingVotes > 0) {
+                                                setState(() {
+                                                  _selectedProposalIds.add(
+                                                    proposalId,
+                                                  );
+                                                });
+                                              } else {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'No votes remaining!',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            } else {
+                                              setState(() {
+                                                _selectedProposalIds.remove(
+                                                  proposalId,
+                                                );
+                                              });
+                                            }
+                                          },
                                 ),
-                              ),
-                          ],
+                              ],
+                            ),
+                          ),
                         ),
                       );
                     },
-                  );
-                },
-              );
-            },
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Confirmation status
+                if (_hasConfirmed)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      border: Border.all(color: Colors.green),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green.shade700),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Your votes have been confirmed!',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  FilledButton(
+                    onPressed: _loading || _hasConfirmed ? null : _submitVotes,
+                    child: Text(
+                      _loading
+                          ? 'Submitting...'
+                          : 'Confirm Votes (${_selectedProposalIds.length} selected)',
+                    ),
+                  ),
+                const SizedBox(height: 12),
+
+                Text(
+                  '${confirmedUids.length}/${participants.length} confirmed their votes',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color:
+                        allConfirmed
+                            ? Colors.green.shade700
+                            : Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Host controls
+                if (isMeHost && allConfirmed)
+                  FilledButton(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Results screen not yet implemented'),
+                        ),
+                      );
+                    },
+                    child: const Text('Host: Show Voting Results'),
+                  )
+                else if (isMeHost)
+                  FilledButton(
+                    onPressed: null,
+                    child: Text(
+                      'Host: Waiting for all votes... (${confirmedUids.length}/${participants.length})',
+                    ),
+                  )
+                else
+                  FilledButton(
+                    onPressed: null,
+                    child: Text(
+                      allConfirmed
+                          ? 'Waiting for host to show results...'
+                          : 'Waiting for all votes... (${confirmedUids.length}/${participants.length})',
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),

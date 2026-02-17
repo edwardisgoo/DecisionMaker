@@ -32,6 +32,7 @@
 # Flutter generated platform plugins
 **/GeneratedPluginRegistrant.*
 **/generated_plugin_registrant.*
+**/generated_plugin_registrant.h
 **/generated_plugins.cmake
 
 # Firebase config (obtain from Firebase console if missing)
