@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
-import '../services/room_scope.dart';
-import '../services/room_store.dart';
 import 'room_lobby_screen.dart';
 import '../services/firebase_room_service.dart';
-import 'room_lobby_screen.dart';
 
 class JoinRoomScreen extends StatefulWidget {
   const JoinRoomScreen({super.key});
@@ -14,7 +11,7 @@ class JoinRoomScreen extends StatefulWidget {
 
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
   final TextEditingController _codeController = TextEditingController();
-  final _svc = FirebaseRoomService();
+  final _svc = FirebaseRoomService.instance;
   bool _loading = false;
 
   String _normalize(String input) =>
