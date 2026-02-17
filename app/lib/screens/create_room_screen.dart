@@ -1,11 +1,6 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
-import '../services/room_scope.dart';
-import '../services/room_store.dart';
-import '../models/participant.dart';
 import 'room_lobby_screen.dart';
 import '../services/firebase_room_service.dart';
-import 'room_lobby_screen.dart';
 
 class CreateRoomScreen extends StatefulWidget {
   const CreateRoomScreen({super.key});
@@ -16,15 +11,8 @@ class CreateRoomScreen extends StatefulWidget {
 
 class _CreateRoomScreenState extends State<CreateRoomScreen> {
   final TextEditingController _titleController = TextEditingController();
-  String? _roomCode;
-  final _svc = FirebaseRoomService();
+  final _svc = FirebaseRoomService.instance;
   bool _loading = false;
-
-  String _generateRoomCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/I/1 nonsense
-    final rand = Random.secure();
-    return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
-  }
 
   Future<void> _createRoom() async {
     final title = _titleController.text.trim();
@@ -84,31 +72,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
               child: Text(_loading ? 'Creating…' : 'Create Room'),
             ),
 
-            const SizedBox(height: 24),
-            if (_roomCode != null) ...[
-              const Divider(),
-              const SizedBox(height: 12),
-              const Text(
-                'Share this code with your friends:',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: SelectableText(
-                  _roomCode!,
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Later this will actually mean something. For now, it’s a promise in six letters.',
-                textAlign: TextAlign.center,
-              ),
-            ],
           ],
         ),
       ),
