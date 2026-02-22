@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:rxdart/rxdart.dart'; // IMPORT THIS
+import 'package:rxdart/rxdart.dart';
 import '../services/firebase_room_service.dart';
+import 'results_screen.dart';
 
 class VotingScreen extends StatefulWidget {
   final String roomCode;
@@ -32,6 +33,7 @@ class _VotingScreenState extends State<VotingScreen> {
   bool _hasConfirmed = false;
   bool _loading = false;
   int _currentPage = 0;
+  int _currentRound = 1;
 
   @override
   void initState() {
@@ -66,6 +68,7 @@ class _VotingScreenState extends State<VotingScreen> {
       await _svc.submitVotes(
         code: widget.roomCode,
         votedProposalIds: _selectedProposalIds.toList(),
+        round: _currentRound,
       );
       if (mounted) {
         setState(() {
@@ -126,22 +129,60 @@ class _VotingScreenState extends State<VotingScreen> {
           final roomData = roomSnap.data() as Map<String, dynamic>;
           final title = (roomData['title'] ?? '') as String;
           final hostUid = (roomData['hostUid'] ?? '') as String;
+          final phase = (roomData['phase'] ?? 'voting') as String;
           final isMeHost = myUid == hostUid;
 
-          final participants = partSnap.docs;
-          final voteQuota = _svc.calculateVoteQuota(participants.length);
-          final remainingVotes = voteQuota - _selectedProposalIds.length;
+          // Navigate to results when phase changes
+          if (phase == 'results') {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        ResultsScreen(roomCode: widget.roomCode),
+                  ),
+                );
+              }
+            });
+          }
 
-          final proposals = proposalSnap.docs;
+          final participants = partSnap.docs;
+          final currentRound = (roomData['voteRound'] ?? 1) as int;
+          _currentRound = currentRound;
+
+          // Revote support: filter proposals and adjust quota
+          final revoteCandidateIds =
+              (roomData['revoteCandidateIds'] as List<dynamic>?)
+                  ?.cast<String>();
+          final isRevote = revoteCandidateIds != null &&
+              revoteCandidateIds.isNotEmpty;
+
+          var proposals = proposalSnap.docs;
+          if (isRevote) {
+            proposals = proposals
+                .where((p) => revoteCandidateIds.contains(p.id))
+                .toList();
+          }
+
+          final voteQuota = _svc.calculateVoteQuota(
+            isRevote ? proposals.length : participants.length,
+          );
+          final remainingVotes = voteQuota - _selectedProposalIds.length;
 
           if (proposals.isEmpty) {
             return const Center(child: Text('No proposals to vote on.'));
           }
 
+          // Only count votes from the current round
           final votes = voteSnap.docs;
           final confirmedUids =
               votes
-                  .where((v) => (v.data()['hasConfirmed'] ?? false) as bool)
+                  .where((v) {
+                    final d = v.data();
+                    final r = (d['round'] ?? 1) as int;
+                    return r == currentRound &&
+                        (d['hasConfirmed'] ?? false) as bool;
+                  })
                   .map((v) => v.id)
                   .toSet();
 
@@ -386,12 +427,19 @@ class _VotingScreenState extends State<VotingScreen> {
                 // Host controls
                 if (isMeHost && allConfirmed)
                   FilledButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Results screen not yet implemented'),
-                        ),
-                      );
+                    onPressed: () async {
+                      try {
+                        await _svc.updateRoomPhase(
+                          widget.roomCode,
+                          'results',
+                        );
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
+                          );
+                        }
+                      }
                     },
                     child: const Text('Host: Show Voting Results'),
                   )

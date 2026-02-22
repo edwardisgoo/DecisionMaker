@@ -36,5 +36,4 @@
 **/generated_plugins.cmake
 
 # Firebase config (obtain from Firebase console if missing)
-**/google-services.json
 **/GoogleService-Info.plist

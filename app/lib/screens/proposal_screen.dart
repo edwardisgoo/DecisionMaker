@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_room_service.dart';
 import 'voting_screen.dart';
+import 'results_screen.dart';
 
 class ProposalScreen extends StatefulWidget {
   final String roomCode;
@@ -82,13 +83,23 @@ class _ProposalScreenState extends State<ProposalScreen> {
           final phase = (roomData['phase'] ?? 'proposal') as String;
           final isMeHost = myUid == hostUid;
 
-          // Navigate to voting phase when host advances
+          // Navigate to next phase when host advances
           if (phase == 'voting') {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute(
                     builder: (_) => VotingScreen(roomCode: widget.roomCode),
+                  ),
+                );
+              }
+            });
+          } else if (phase == 'results') {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => ResultsScreen(roomCode: widget.roomCode),
                   ),
                 );
               }

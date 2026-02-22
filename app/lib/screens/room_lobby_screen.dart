@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_room_service.dart';
 import 'proposal_screen.dart';
 import 'voting_screen.dart';
+import 'results_screen.dart';
 
 class RoomLobbyScreen extends StatefulWidget {
   final String roomCode;
@@ -53,6 +54,12 @@ class _RoomLobbyScreenState extends State<RoomLobbyScreen> {
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
                       builder: (_) => VotingScreen(roomCode: widget.roomCode),
+                    ),
+                  );
+                } else if (phase == 'results') {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => ResultsScreen(roomCode: widget.roomCode),
                     ),
                   );
                 }

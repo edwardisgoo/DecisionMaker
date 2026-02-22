@@ -2,30 +2,76 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function authed() {
+      return request.auth != null;
+    }
+
+    function isHost(roomDoc) {
+      return authed() && roomDoc.data.hostUid == request.auth.uid;
+    }
+
+    function isParticipant(roomCode) {
+      return authed()
+        && exists(/databases/$(database)/documents/rooms/$(roomCode)/participants/$(request.auth.uid));
+    }
+
+    // Rooms
     match /rooms/{roomCode} {
-      allow read: if true;
-      allow create: if request.auth != null
-                    && request.resource.data.hostUid == request.auth.uid;
-      // Host can update/delete anything; any authed user can update lastActiveAt only
-      allow update: if request.auth != null
-                    && (resource.data.hostUid == request.auth.uid
-                        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActiveAt']));
-      allow delete: if request.auth != null
-                    && resource.data.hostUid == request.auth.uid;
 
+      // Only participants can read the room doc
+      allow read: if isParticipant(roomCode);
+
+      // Create: creator must be hostUid and will become host
+      allow create: if authed()
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['title', 'hostUid', 'createdAt'])
+        && request.resource.data.title is string;
+
+      // Updates:
+      // - host can update anything
+      // - participants can only update lastActiveAt (optional)
+      allow update: if authed() && (
+          isHost(resource)
+          || (
+            isParticipant(roomCode)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActiveAt'])
+          )
+        );
+
+      // Only host can delete the room
+      allow delete: if isHost(resource);
+
+      // Participants subcollection
       match /participants/{uid} {
-        allow read: if true;
-        allow create, update: if request.auth != null && request.auth.uid == uid;
+        // Only participants can read participants list
+        allow read: if isParticipant(roomCode);
+
+        // A user can create/update their own participant doc
+        allow create, update: if authed() && request.auth.uid == uid;
+
+        allow delete: if false;
       }
 
+      // Proposals: one doc per user (uid)
       match /proposals/{uid} {
-        allow read: if true;
-        allow create, update: if request.auth != null && request.auth.uid == uid;
+        allow read: if isParticipant(roomCode);
+        allow create, update: if authed() && request.auth.uid == uid;
+        allow delete: if false;
       }
 
+      // Votes: one doc per user (uid)
       match /votes/{uid} {
-        allow read: if true;
-        allow create, update: if request.auth != null && request.auth.uid == uid;
+        allow read: if isParticipant(roomCode);
+        allow create, update: if authed() && request.auth.uid == uid;
+        allow delete: if false;
+      }
+
+      // Tiebreaker: one doc per user (uid)
+      match /tiebreaker/{uid} {
+        allow read: if isParticipant(roomCode);
+        allow create, update: if authed() && request.auth.uid == uid;
+        allow delete: if false;
       }
     }
   }
