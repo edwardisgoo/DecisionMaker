@@ -2,7 +2,7 @@
 
 **Kill the "where do you want to go?" loop.**
 
-Decision Maker is a real-time multiplayer app that forces groups to make decisions. Everyone proposes an option, everyone votes, and ties get broken — no more endless back-and-forth.
+Decision Maker is a real-time multiplayer app that forces groups to make decisions. Everyone proposes an option, everyone votes, and ties get broken.
 
 Built with Flutter and Firebase.
 
@@ -11,20 +11,19 @@ Built with Flutter and Firebase.
 ## How It Works
 
 1. **Create or join a room** — One person creates a room and shares the 6-character code with their group.
-2. **Everyone proposes** — Each participant submits one option (e.g. "Thai food", "That new Italian place").
+2. **Everyone proposes** — Each participant submits one option.
 3. **Everyone votes** — Participants swipe through proposals and vote for their favorites. The number of votes per person scales with group size.
 4. **Results** — The top proposal wins. If there's a tie, the group votes again on just the tied options — or picks randomly.
-
+5. **Objection** — Unimplemented, but essentially gives the members a chance to object to the final decision.
 ---
 
 ## Features
 
 - Real-time multiplayer via Firebase Firestore
 - Anonymous auth — no sign-up required
-- Phase-based flow: Lobby → Proposals → Voting → Results
+- Phase-based flow: Lobby → Proposals → Voting → Results → Objection
 - Tie-breaking: revote on tied options, or animated random selection
 - Scales vote quota by group size (1–4 votes per person)
-- Cross-platform: iOS, Android, Web, Windows, Linux, macOS
 
 ---
 
